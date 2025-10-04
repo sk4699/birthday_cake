@@ -90,12 +90,25 @@ class Player8(Player):
             except Exception as e:
                 print("Exception in cut_piece or scoring:", e)
                 return (2, float("inf"))
-
+            
         best_score = (2, float("inf"))
         best_cut = None
+        best_angle = 0
 
-        for angle in range(0, 180, 2):  # check every 2 angles from 0 to 180 - brute forcing for now
+        #to reduce number of comparisons, iterate through larger degree intervals and then focus in on the best one
+
+        for angle in range(0, 180, 10): #iterate through every 10 degrees from 0 to 180 
             from_p, to_p = get_cut_points(angle)
+            score = score_cut(from_p, to_p)
+
+            if score < best_score:  # tuple comparison works right here
+                best_score = score
+                best_cut = (from_p, to_p)
+                best_angle = angle
+        
+        #iterate through every angle 10 degrees before and 10 degrees after the best angle found above
+        for more_specific_angle in range(min(0, best_angle - 10), max(180, best_angle + 10)): 
+            from_p, to_p = get_cut_points(more_specific_angle)
             score = score_cut(from_p, to_p)
 
             if score < best_score:  # tuple comparison works right here
