@@ -41,7 +41,9 @@ class Player8(Player):
     # CUTTING STRATEGIES
     # -------------------------------------------------------------------------
 
-    def find_good_cut(self, piece: Polygon, working_cake: Cake) -> Optional[tuple[Point, Point]]:
+    def find_good_cut(
+        self, piece: Polygon, working_cake: Cake
+    ) -> Optional[tuple[Point, Point]]:
         """Adaptive cut finder:
         1. Try centroid-based method first
         2. If no cut found or polygon is complex, try boundary pairs
@@ -67,7 +69,9 @@ class Player8(Player):
     # -------------------------------------------------------------------------
     # HELPER: Centroid-based cut search
     # -------------------------------------------------------------------------
-    def _find_cut_by_centroid(self, piece: Polygon, working_cake: Cake) -> Optional[tuple[Point, Point]]:
+    def _find_cut_by_centroid(
+        self, piece: Polygon, working_cake: Cake
+    ) -> Optional[tuple[Point, Point]]:
         centroid = piece.centroid
         radius = max(centroid.distance(Point(p)) for p in piece.exterior.coords) * 2
 
@@ -114,7 +118,9 @@ class Player8(Player):
     # -------------------------------------------------------------------------
     # HELPER: Boundary-to-boundary pair search
     # -------------------------------------------------------------------------
-    def _find_cut_by_boundary_pairs(self, piece: Polygon, working_cake: Cake) -> Optional[tuple[Point, Point]]:
+    def _find_cut_by_boundary_pairs(
+        self, piece: Polygon, working_cake: Cake
+    ) -> Optional[tuple[Point, Point]]:
         coords = list(piece.exterior.coords)
         n = len(coords)
 
@@ -145,7 +151,9 @@ class Player8(Player):
     # -------------------------------------------------------------------------
     # HELPER: Random angle fallback
     # -------------------------------------------------------------------------
-    def _find_cut_by_random_angles(self, piece: Polygon, working_cake: Cake) -> Optional[tuple[Point, Point]]:
+    def _find_cut_by_random_angles(
+        self, piece: Polygon, working_cake: Cake
+    ) -> Optional[tuple[Point, Point]]:
         centroid = piece.centroid
         radius = max(centroid.distance(Point(p)) for p in piece.exterior.coords) * 2
 
@@ -176,7 +184,9 @@ class Player8(Player):
     # -------------------------------------------------------------------------
     # HELPER: Cut scoring
     # -------------------------------------------------------------------------
-    def _score_cut(self, piece: Polygon, working_cake: Cake, from_p: Point, to_p: Point) -> tuple[int, float]:
+    def _score_cut(
+        self, piece: Polygon, working_cake: Cake, from_p: Point, to_p: Point
+    ) -> tuple[int, float]:
         bound = piece.boundary
         from_p = bound.interpolate(bound.project(from_p))
         to_p = bound.interpolate(bound.project(to_p))
