@@ -4,6 +4,7 @@ from players.player import Player
 from src.cake import Cake
 import src.constants as c
 
+
 class Player8(Player):
     """
     Player8 - Adaptive boundary search strategy.
