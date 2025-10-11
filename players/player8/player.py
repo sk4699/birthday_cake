@@ -25,8 +25,11 @@ class Player8(Player):
 
     def get_cuts(self) -> list[tuple[Point, Point]]:
         total_area = self.cake.exterior_shape.area
+        total_crust = self.cake.exterior_shape.length
+
         target_area = total_area / self.children
         target_areas = [target_area for _ in range(self.children - 1)]
+        target_ratio = total_crust / total_area
 
         moves: list[tuple[Point, Point]] = []
 
@@ -68,16 +71,30 @@ class Player8(Player):
                         continue
 
                     a1, a2 = parts.geoms[0].area, parts.geoms[1].area
+                    c1 = parts.geoms[0].boundary.intersection(self.cake.exterior_shape.boundary).length
+                    c2 = parts.geoms[1].boundary.intersection(self.cake.exterior_shape.boundary).length
 
                     # Respect minimum piece area
                     if a1 < c.MIN_PIECE_AREA or a2 < c.MIN_PIECE_AREA:
                         continue
 
-                    small = min(a1, a2)
-                    score = abs(small - t_area)
+                    smallest_area = min(a1, a2)
+                    area_score = abs(smallest_area - t_area)
 
-                    # First cut special penalty: discourage overshooting
-                    if cut_index == 0 and small > t_area:
+                    # Crust to area ratio for each piece
+                    ratio_1 = c1 / a1
+                    ratio_2 = c2 / a2
+                    ratio_score = max(abs(ratio_1 - target_ratio), abs(ratio_2 - target_ratio))
+
+                    # Weights - set ratio weight to vary within a range of 0.05 to 0.2
+                    # As number of children increase, the ratio weight increases
+                    # Area weight is proportional to ratio weight
+                    ratio_weight = min(0.05 + 0.01 * (self.children - 1), 0.5)
+                    area_weight = 1 - ratio_weight
+
+                    score = area_weight * area_score + ratio_weight * ratio_score 
+
+                    if cut_index == 0 and smallest_area > t_area:
                         score *= 1.25
 
                     if score < best_score:
