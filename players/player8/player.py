@@ -55,7 +55,10 @@ class Player8(Player):
         best = (
             p1,
             p2,
-            abs(min(split(piece, LineString([p1, p2])).geoms, key=lambda g: g.area).area - t_area),
+            abs(
+                min(split(piece, LineString([p1, p2])).geoms, key=lambda g: g.area).area
+                - t_area
+            ),
         )
 
         for _ in range(steps):
@@ -145,8 +148,12 @@ class Player8(Player):
 
                     # Adjust weighting dynamically as cuts progress
                     alpha = cut_index / max(1, self.children - 1)
-                    base_area_w = getattr(self, "area_weight_override", self.area_weight)
-                    base_crust_w = getattr(self, "crust_weight_override", self.crust_weight)
+                    base_area_w = getattr(
+                        self, "area_weight_override", self.area_weight
+                    )
+                    base_crust_w = getattr(
+                        self, "crust_weight_override", self.crust_weight
+                    )
 
                     area_weight = base_area_w + (1 - alpha) * 0.1
                     crust_weight = base_crust_w * (1 + 0.5 * alpha)
