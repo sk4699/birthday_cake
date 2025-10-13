@@ -3,260 +3,101 @@ from shapely.ops import split
 from players.player import Player
 from src.cake import Cake
 import src.constants as c
-from shapely.geometry import Polygon
 
 
 class Player8(Player):
     """
-    Player8 - Adaptive boundary search strategy.
+    Player8 - Adaptive boundary search strategy with global crust balance feedback.
+    Inspired by Player9 logic.
 
-    Inspired by the CrustOptimizingPlayer implementation by Player9,
-    particularly the idea of iterating over boundary point pairs and scoring cuts
-    by area differences. The specific search heuristics, candidate density strategy,
-    and early-break optimizations are original to our group.
-
-    Modifications:
-    - First-cut special handling (no early break, higher resolution)
-    - Adaptive candidate counts based on perimeter length
-    - Balanced runtime heuristics for complex shapes (e.g., Koch snowflake)
+    This strategy adaptively selects cuts around the cake’s boundary to balance
+    both area and crust ratio across pieces. It evaluates possible cuts based
+    on a weighted combination of area accuracy, crust difference, and global
+    balance to achieve fair divisions.
     """
 
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
+        """
+        Initializes Player8 with weighting preferences for area and crust fairness.
+
+        Args:
+            children: Number of cake recipients.
+            cake: The cake object to be divided.
+            cake_path: Optional path for serialized cake state.
+        """
         super().__init__(children, cake, cake_path)
-        self.total_area = self.cake.exterior_shape.area
-        self.target_area = self.total_area / self.children
-        self.target_areas = [self.target_area for _ in range(self.children - 1)]
-        self.target_ratio = self.cake.interior_shape.area / self.cake.exterior_shape.area
+        self.area_weight = 0.7
+        self.crust_weight = 0.23
 
+    def _refine_cut(self, piece, p1, p2, t_area, delta=0.01, steps=4):
+        """
+        Fine-tunes the position of a proposed cut by making small local
+        adjustments to its endpoints. The goal is to minimize the difference
+        between the smaller resulting piece’s area and the target area.
 
-    def get_cuts(self, method='beam_search') -> list[tuple[Point, Point]]:
-        if method == 'beam_search':
-            return self.get_cuts_beam_search()
-        else:
-            return self.get_cuts_bruteforce()
+        Args:
+            piece: The piece being divided.
+            p1, p2: The initial proposed cut endpoints.
+            t_area: Target area for one of the resulting pieces.
+            delta: Step size for each boundary movement.
+            steps: Number of iterations for refinement.
 
-
-    def divide_boundary_into_arcs(self, boundary: LineString, num_arcs: int) -> list[list[Point]]:
-        samples_per_arc = 10
-        arc_size = boundary.length / num_arcs
-
-        arcs = [
-            [boundary.interpolate(i * arc_size / samples_per_arc + j * (arc_size / samples_per_arc))
-            for j in range(samples_per_arc)]
-            for i in range(num_arcs)
-        ]
-
-        return arcs
-    
-
-    def get_opposite_arc_pairs(self, num_arcs: int) -> list[tuple[int, int]]:
-        arc_pairs = []
-
-        for i in range(num_arcs):
-            for offset in range(2, num_arcs - 2):  # skip neighbors, add opposite arcs
-                j = (i + offset) % num_arcs
-                arc_pairs.append((i, j))
-
-        return arc_pairs
-    
-
-    def convexity(polygon: Polygon) -> float:
-        hull_area = polygon.convex_hull.area
-        return polygon.area / hull_area  # 1.0 if convex, < 1.0 if concave
-
-
-    def get_cuts_beam_search(self) -> list[tuple[Point, Point]]:
-
-        beam_width = 10
-        refinement_radius = 0.05
-
-        moves = []
-
-        for cut_index, t_area in enumerate(self.target_areas):
-            print(f"\n=== Beam Search Finding cut {cut_index + 1}/{self.children - 1} ===")
-            piece = max(self.cake.get_pieces(), key=lambda p: p.area)
-            boundary = piece.boundary
-            boundary_len = boundary.length
-
-            # Initial candidate sampling
-            num_candidates = max(150, min(220, int(boundary_len / 1.2)))  # sampling btwn 150 and 220 pts, depending on the perimeter
-            # play around with this, could be reduced
-
-            step = boundary_len / num_candidates
-            points = [boundary.interpolate(i * step) for i in range(num_candidates)]
-
-            # we can refine to sample more strategically - ie start with more dense regions,
-            # sample more in thin or convex areas, avoid small angled cuts. this could be separated out into a different
-            # function
-
-            candidate_scores = []
-
-            # Score all pairs as in brute force, but keep top k only
-
-            # num_arcs = 8
-            # arcs = self.divide_boundary_into_arcs(boundary, num_arcs)
-            # arc_pairs = self.get_opposite_arc_pairs(num_arcs)
-
-            # for i, j in arc_pairs:
-            #     for p1 in arcs[i]:
-            #         for p2 in arcs[j]:
-            #             result = self.score_cut(piece, p1, p2, t_area, self.target_ratio, cut_index)
-            #             if result is None:
-            #                 continue
-            #             score, candidate = result
-            #             candidate_scores.append((score, candidate))
-
-            for i in range(num_candidates):
-                for j in range(i + 1, num_candidates):
-                    result = self.score_cut(piece, points[i], points[j], t_area, self.target_ratio, cut_index)
-                    if result is None:
-                        continue
-                    score, candidate = result
-                    candidate_scores.append((score, candidate))
-
-            # Keep top-k candidates for refinement
-            candidate_scores.sort(key=lambda x: x[0])
-            top_candidates = candidate_scores[:beam_width]
-
-            # Local refinement around top candidates
-            refined_best_score = float("inf")
-            refined_best_cut = None
-
-            for score, (p1, p2) in top_candidates:
-                # Sample points near p1 and p2 within refinement_radius
-                p1_candidates = self.sample_nearby_points(boundary, p1, refinement_radius, num_samples=5)
-                p2_candidates = self.sample_nearby_points(boundary, p2, refinement_radius, num_samples=5)
-
-                for rp1 in p1_candidates:
-                    for rp2 in p2_candidates:
-                        if rp1.equals(rp2):
-                            continue
-                        result = self.score_cut(piece, rp1, rp2, t_area, self.target_ratio, cut_index)
-                        if result is None:
-                            continue
-                        score, candidate = result
-                        if score < refined_best_score:
-                            refined_best_score = score
-                            refined_best_cut = candidate
-
-            if refined_best_cut is None:
-                print(f"[WARN] No valid cut found at step {cut_index + 1}, retrying with brute-force for this cut")
-                fallback_cut = self.get_single_bruteforce_cut(piece, t_area, cut_index)
-                if fallback_cut is None:
-                    print("[ERROR] Fallback also failed.")
-                    break
-                refined_best_cut = fallback_cut
-
-            print(
-                f"Chosen cut {cut_index + 1}: best_score={refined_best_score:.4f}, "
-                f"target_area={t_area:.2f}, p1={refined_best_cut[0]}, p2={refined_best_cut[1]}"
-            )
-
-            self.cake.cut(refined_best_cut[0], refined_best_cut[1])
-            moves.append(refined_best_cut)
-
-        return moves
-    
-
-    def get_single_bruteforce_cut(self, piece, t_area, cut_index):
+        Returns:
+            Tuple of the optimized endpoints (p1, p2).
+        """
         boundary = piece.boundary
-        boundary_len = boundary.length
 
-        num_candidates = max(150, min(220, int(boundary_len / 1.2)))
-        step = boundary.length / num_candidates
-        points = [boundary.interpolate(i * step) for i in range(num_candidates)]
+        def move(pt, step):
+            s = boundary.project(pt)
+            s_new = min(max(0.0, s + step * delta * boundary.length), boundary.length)
+            return boundary.interpolate(s_new)
 
-        best_score = float("inf")
-        best_cut = None
+        best = (
+            p1,
+            p2,
+            abs(min(split(piece, LineString([p1, p2])).geoms, key=lambda g: g.area).area - t_area),
+        )
 
-        for i in range(num_candidates):
-            for j in range(i + 1, num_candidates):
-                result = self.score_cut(piece, points[i], points[j], t_area, self.target_ratio, cut_index)
-                if result is None:
-                    continue
-                score, candidate = result
+        for _ in range(steps):
+            improved = False
+            for s1 in (-1, 1):
+                for s2 in (-1, 1):
+                    q1, q2 = move(best[0], s1), move(best[1], s2)
+                    parts = split(piece, LineString([q1, q2]))
+                    if len(parts.geoms) != 2:
+                        continue
+                    small = min(parts.geoms[0].area, parts.geoms[1].area)
+                    err = abs(small - t_area)
+                    if err < best[2]:
+                        best = (q1, q2, err)
+                        improved = True
+            if not improved:
+                break
+        return best[0], best[1]
 
-                if cut_index == 0 and min(piece.area, t_area) > t_area:
-                    score *= 1.25
-
-                if score < best_score:
-                    best_score = score
-                    best_cut = candidate
-
-        return best_cut
-    
-    
-    def sample_nearby_points(self, boundary, point, radius, num_samples=5):
+    def get_cuts(self) -> list[tuple[Point, Point]]:
         """
-        Given a boundary and a point on it, sample `num_samples` points near `point` within `radius` along the boundary.
-        This is used for local refinement around candidate cuts.
+        Determines the sequence of cuts to divide the cake into fair pieces.
+        The method iteratively selects boundary points that minimize a composite
+        score based on area fairness, crust ratio difference, and global crust balance.
+
+        Returns:
+            A list of (Point, Point) tuples representing all executed cuts.
         """
-        boundary_len = boundary.length
-        pos = boundary.project(point)
-        candidates = []
-        step = radius / (num_samples - 1) if num_samples > 1 else 0
-
-        for i in range(num_samples):
-            offset = pos - radius/2 + i * step
-            offset = offset % boundary_len
-            candidate = boundary.interpolate(offset)
-            candidates.append(candidate)
-
-        return candidates
-    
-
-    def score_cut(self, piece, p1, p2, target_area, target_ratio, cut_index):
-        valid, _ = self.cake.cut_is_valid(p1, p2)
-        if not valid:
-            return None  # invalid cut
-
-        line = LineString([p1, p2])
-        parts = split(piece, line)
-        if len(parts.geoms) != 2:
-            return None
-
-        a1, a2 = parts.geoms[0].area, parts.geoms[1].area
-        c1 = parts.geoms[0].boundary.intersection(self.cake.exterior_shape.boundary).length
-        c2 = parts.geoms[1].boundary.intersection(self.cake.exterior_shape.boundary).length
-
-        if a1 < c.MIN_PIECE_AREA or a2 < c.MIN_PIECE_AREA:
-            return None
-
-        smallest_area = min(a1, a2)
-        area_score = abs(smallest_area - target_area)
-
-        ratio_1 = c1 / a1
-        ratio_2 = c2 / a2
-
-        ratio_score = max(abs(ratio_1 - target_ratio), abs(ratio_2 - target_ratio))
-
-        ratio_weight = min(0.05 + 0.01 * (self.children - 1), 0.5)
-        area_weight = 1 - ratio_weight
-
-        score = area_weight * area_score + ratio_weight * ratio_score
-
-        if cut_index == 0 and smallest_area > target_area:
-            score *= 1.25
-
-        return score, (p1, p2)
-
-
-    def get_cuts_bruteforce(self) -> list[tuple[Point, Point]]:
-
+        total_area = self.cake.exterior_shape.area
+        target_area = total_area / self.children
+        target_areas = [target_area for _ in range(self.children - 1)]
         moves: list[tuple[Point, Point]] = []
 
-        for cut_index, t_area in enumerate(self.target_areas):
-            print(f"\n=== Finding cut {cut_index + 1}/{self.children - 1} ===")
+        for cut_index, t_area in enumerate(target_areas):
             piece = max(self.cake.get_pieces(), key=lambda p: p.area)
             boundary = piece.boundary
             boundary_len = boundary.length
 
-            # Adaptive candidate density
+            # Adjust candidate density based on iteration stage
             if cut_index == 0:
-                # First cut: more resolution, no early break
                 num_candidates = min(500, max(200, int(boundary_len / 0.4)))
             else:
-                # Subsequent cuts: slightly higher than before, but not full brute force
                 num_candidates = max(150, min(220, int(boundary_len / 1.2)))
 
             step = boundary.length / num_candidates
@@ -265,8 +106,13 @@ class Player8(Player):
             best_score = float("inf")
             best_cut = None
 
-            # Early exit thresholds (tuned for typical cake sizes)
-            perfect_thresh = t_area * 0.001  # within 0.1% of target area
+            perfect_thresh = 0.001
+            area_prune_thresh = 0.3
+
+            # Evaluate global crust balance among all existing pieces
+            ratios = [self.cake.get_piece_ratio(p) for p in self.cake.get_pieces()]
+            global_mean = sum(ratios) / len(ratios)
+            global_weight = 0.25
 
             for i in range(num_candidates):
                 for j in range(i + 1, num_candidates):
@@ -282,78 +128,71 @@ class Player8(Player):
                     if len(parts.geoms) != 2:
                         continue
 
-                    a1, a2 = parts.geoms[0].area, parts.geoms[1].area
-                    c1 = parts.geoms[0].boundary.intersection(self.cake.exterior_shape.boundary).length
-                    c2 = parts.geoms[1].boundary.intersection(self.cake.exterior_shape.boundary).length
+                    a1, a2 = parts.geoms
+                    a1_area, a2_area = a1.area, a2.area
+                    small = min(a1_area, a2_area)
 
-                    # Respect minimum piece area
-                    if a1 < c.MIN_PIECE_AREA or a2 < c.MIN_PIECE_AREA:
+                    if abs(small - t_area) > t_area * area_prune_thresh:
+                        continue
+                    if a1_area < c.MIN_PIECE_AREA or a2_area < c.MIN_PIECE_AREA:
                         continue
 
-                    smallest_area = min(a1, a2)
-                    area_score = abs(smallest_area - t_area)
+                    area_error = abs(small - t_area) / t_area
+                    r1 = self.cake.get_piece_ratio(a1)
+                    r2 = self.cake.get_piece_ratio(a2)
+                    crust_diff = abs(r1 - r2)
+                    crust_diff = min(crust_diff, 1.0)
 
-                    # Crust to area ratio for each piece
-                    ratio_1 = c1 / a1
-                    ratio_2 = c2 / a2
+                    # Adjust weighting dynamically as cuts progress
+                    alpha = cut_index / max(1, self.children - 1)
+                    base_area_w = getattr(self, "area_weight_override", self.area_weight)
+                    base_crust_w = getattr(self, "crust_weight_override", self.crust_weight)
 
-                    # if cut_index == 0:  # discard really bad ratios in the first cut
-                    #     if max(abs(ratio_1 - target_ratio), abs(ratio_2 - target_ratio)) > 0.3:
-                    #         continue
+                    area_weight = base_area_w + (1 - alpha) * 0.1
+                    crust_weight = base_crust_w * (1 + 0.5 * alpha)
 
-                    ratio_score = max(abs(ratio_1 - self.target_ratio), abs(ratio_2 - self.target_ratio))
+                    r_small = r1 if a1_area <= a2_area else r2
+                    global_balance_penalty = abs(r_small - global_mean)
 
-                    # ratio_weight, area_weight = self.compute_weights(cut_index, self.children - 1, self.children)
+                    # Composite score combining area, crust, and global balance
+                    score = (
+                        area_weight * area_error
+                        + crust_weight * crust_diff
+                        + global_weight * global_balance_penalty
+                    )
 
-                    ratio_weight = min(0.05 + 0.01 * (self.children - 1), 0.5)
-                    area_weight = 1 - ratio_weight
-
-                    score = area_weight * area_score + ratio_weight * ratio_score 
-
-                    if cut_index == 0 and smallest_area > t_area:
+                    if cut_index == 0 and small > t_area:
                         score *= 1.25
+                    if area_error > 0.3 or crust_diff > 0.6:
+                        continue
 
                     if score < best_score:
                         best_score = score
                         best_cut = (p1, p2)
 
-                        # Early break if we find a "perfect enough" cut
-                        if best_score < perfect_thresh:
+                        if area_error < perfect_thresh and crust_diff < 0.01:
                             break
-                if best_score < perfect_thresh:
+                if best_score < float("inf") and best_score < perfect_thresh:
                     break
 
             if best_cut is None:
                 print(f"[WARN] No valid cut found at step {cut_index + 1}")
                 break
 
-            print(
-                f"Chosen cut {cut_index + 1}: best_score={best_score:.4f}, "
-                f"target_area={t_area:.2f}, p1={best_cut[0]}, p2={best_cut[1]}"
-            )
+            best_cut = self._refine_cut(piece, best_cut[0], best_cut[1], t_area)
 
-            # Apply the cut
+            # Apply final chosen cut
             self.cake.cut(best_cut[0], best_cut[1])
             moves.append(best_cut)
 
+            # print(
+            #     f"[CUT {cut_index + 1}] "
+            #     f"Points=({round(best_cut[0].x, 3)}, {round(best_cut[0].y, 3)}) → "
+            #     f"({round(best_cut[1].x, 3)}, {round(best_cut[1].y, 3)}) | "
+            #     f"Score={best_score:.4f}, "
+            #     f"Target={t_area:.3f}, "
+            #     f"PieceArea={piece.area:.3f}, "
+            #     f"GlobalMeanRatio={global_mean:.3f}"
+            # )
+
         return moves
-
-
-    def compute_weights(self, cut_index: int, total_cuts: int, num_children: int) -> tuple[float, float]:
-        base_ratio_weight = min(0.05 + 0.02 * (num_children - 1), 0.8)
-
-        min_phase_weight = min(0.5 + 0.03 * (num_children - 1), 0.8)
-
-        if total_cuts == 1:
-            phase_weight = 1.0
-        else:
-            decay_factor = 0.7
-            phase_weight = max(decay_factor ** (cut_index / (total_cuts - 1)), min_phase_weight)
-
-        ratio_weight = base_ratio_weight * phase_weight
-        area_weight = 1 - ratio_weight
-        print("RATIO WEIGHT: ", ratio_weight, "AREA WEIGHT: ", area_weight)
-        return ratio_weight, area_weight
-
-# special geometric handling: thin parts, more sampling
-# convex bump: don't need as many samples. longer cuts across the center better
