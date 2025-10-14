@@ -199,7 +199,7 @@ class Player8(Player):
             if best_cut is None:
                 if candidate_count == 0 and fallback_best[0] is not None:
                     best_cut = fallback_best[0]
-                    print(f"  ⚠ No near-target candidates; using closest match (Δ={fallback_best[1]:.3f})")
+                    print(f"No near-target candidates; using closest match (Δ={fallback_best[1]:.3f})")
                 else:
                     print(f"[WARN] No valid cut found at step {cut_index + 1}")
                     break
@@ -212,9 +212,20 @@ class Player8(Player):
             moves.append(best_cut)
 
             # Debug print
-            a_preview = min(split(piece, LineString(best_cut)).geoms, key=lambda g: g.area)
+            # After applying the cut
+            split_geoms = split(piece, LineString(best_cut)).geoms
+            a_preview = min(split_geoms, key=lambda g: g.area)
             area_err = abs(a_preview.area - t_area)
-            ratio_err = abs(r_small - global_mean)
+
+            # Compute ratio error for the larger piece
+            a1, a2 = split_geoms
+            a1_area, a2_area = a1.area, a2.area
+            r1 = self.cake.get_piece_ratio(a1)
+            r2 = self.cake.get_piece_ratio(a2)
+            r_large = r1 if a1_area > a2_area else r2
+            ratio_err = abs(r_large - global_mean)
+
+            # Print result
             print(
                 f"Chosen cut {cut_index + 1}: "
                 f"({best_cut[0].x:.3f},{best_cut[0].y:.3f}) → "
@@ -222,6 +233,7 @@ class Player8(Player):
                 f"area error = {area_err:.4f}, "
                 f"ratio error = {ratio_err:.4f}"
             )
+
 
 
         # Save cuts and run post-processing wiggle
