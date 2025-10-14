@@ -3,6 +3,7 @@ from shapely.ops import split
 from players.player import Player
 from src.cake import Cake
 import src.constants as c
+import math
 
 
 class Player8(Player):
@@ -20,6 +21,47 @@ class Player8(Player):
         super().__init__(children, cake, cake_path)
         self.area_weight = 0.7
         self.crust_weight = 0.23
+
+    
+    def _detect_radial_symmetry(self, piece, threshold=0.01):
+        """
+        Returns (bool, centroid) if shape is approximately radially symmetric.
+        """
+        centroid = piece.centroid
+        boundary = piece.boundary
+        n = 300
+        step = boundary.length / n
+        distances = [centroid.distance(boundary.interpolate(i * step)) for i in range(n)]
+
+        mean = sum(distances) / len(distances)
+        var = sum((d - mean) ** 2 for d in distances) / n
+
+        return var < threshold, centroid
+    
+
+    def _generate_radial_candidates(self, center: Point, boundary, num_rays: int = 60):
+        """
+        Generates candidate cut endpoints as rays from center to boundary intersections.
+        """
+        candidates = []
+        for i in range(num_rays):
+            angle = 2 * math.pi * i / num_rays
+            dx = 1000 * math.cos(angle)
+            dy = 1000 * math.sin(angle)
+            ray = LineString([center, Point(center.x + dx, center.y + dy)])
+            inter = ray.intersection(boundary)
+            if inter.is_empty:
+                continue
+            if inter.geom_type == "MultiPoint":
+                pt = max(inter.geoms, key=lambda p: center.distance(p))
+            elif inter.geom_type == "Point":
+                pt = inter
+            else:
+                continue
+            candidates.append(pt)
+        return candidates
+
+
 
     # -------------------------------------------------------------
     # Local refinement of a chosen cut
@@ -72,6 +114,7 @@ class Player8(Player):
         target_area = total_area / self.children
         target_areas = [target_area for _ in range(self.children - 1)]
         moves: list[tuple[Point, Point]] = []
+        self.use_radial_symmetry = self._check_radial_symmetry(self.cake.exterior_shape)
 
         for cut_index, t_area in enumerate(target_areas):
             piece = max(self.cake.get_pieces(), key=lambda p: p.area)
@@ -84,8 +127,32 @@ class Player8(Player):
             else:
                 num_candidates = max(400, min(220, int(boundary_len / 1.2)))
 
+            if cut_index == 0 and symmetry_center is not None:
+            boundary = piece.boundary
+            num_candidates = 1000  # adjust density
+
+            # Sample candidate points on boundary
             step = boundary.length / num_candidates
-            points = [boundary.interpolate(i * step) for i in range(num_candidates)]
+            boundary_points = [boundary.interpolate(i * step) for i in range(num_candidates)]
+
+            # Candidate cuts: from symmetry_center to each boundary point
+            candidates = []
+            for bp in boundary_points:
+                line = LineString([symmetry_center, bp])
+                parts = split(piece, line)
+                if len(parts.geoms) != 2:
+                    continue
+                small_area = min(parts.geoms[0].area, parts.geoms[1].area)
+                area_diff = abs(small_area - t_area)
+                if area_diff <= 0.25:  # your area tolerance
+                    candidates.append((symmetry_center, bp, area_diff))
+
+            # Evaluate candidates as usual with your scoring, crust, etc.
+            # Pick best candidate from candidates list
+
+            else:
+                step = boundary.length / num_candidates
+                points = [boundary.interpolate(i * step) for i in range(num_candidates)]
 
             best_score = float("inf")
             best_cut = None
