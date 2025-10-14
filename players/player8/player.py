@@ -65,7 +65,8 @@ class Player8(Player):
     def get_cuts(self) -> list[tuple[Point, Point]]:
         """
         Iteratively selects cuts that minimize a composite score
-        based on area fairness, crust ratio difference, and global balance.
+        based on area fairness and crust ratio deviation from global mean,
+        with emphasis on the larger piece earlier in the process.
         """
         total_area = self.cake.exterior_shape.area
         target_area = total_area / self.children
@@ -94,7 +95,7 @@ class Player8(Player):
             # Evaluate global crust balance
             ratios = [self.cake.get_piece_ratio(p) for p in self.cake.get_pieces()]
             global_mean = sum(ratios) / len(ratios)
-            global_weight = 0.25
+            global_weight = 0.25  # retained in case needed
 
             candidate_count = 0
             fallback_best = (None, float("inf"))
@@ -130,38 +131,64 @@ class Player8(Player):
                     if a1_area < c.MIN_PIECE_AREA or a2_area < c.MIN_PIECE_AREA:
                         continue
 
+                    # Area error
                     area_error = abs(small - t_area) / t_area
-                    r1, r2 = self.cake.get_piece_ratio(a1), self.cake.get_piece_ratio(a2)
-                    crust_diff = min(abs(r1 - r2), 1.0)
 
-                    # Dynamic weighting + first-cut bias
+                    # --- Crust ratio scoring relative to global mean ---
+                    r1 = self.cake.get_piece_ratio(a1)
+                    r2 = self.cake.get_piece_ratio(a2)
+
+                    total = a1_area + a2_area
+                    a1_frac = a1_area / total
+                    a2_frac = a2_area / total
+
+                    if a1_area > a2_area:
+                        larger_r_diff = abs(r1 - global_mean)
+                        smaller_r_diff = abs(r2 - global_mean)
+                        larger_frac = a1_frac
+                        smaller_frac = a2_frac
+                    else:
+                        larger_r_diff = abs(r2 - global_mean)
+                        smaller_r_diff = abs(r1 - global_mean)
+                        larger_frac = a2_frac
+                        smaller_frac = a1_frac
+
+                    stage_progress = cut_index / max(1, self.children - 1)
+                    larger_weight = 0.8 - 0.3 * stage_progress
+                    smaller_weight = 1.0 - larger_weight
+
+                    weighted_crust_diff = (
+                        larger_r_diff * larger_frac * larger_weight +
+                        smaller_r_diff * smaller_frac * smaller_weight
+                    )
+
+                    # Dynamic weighting
                     alpha = cut_index / max(1, self.children - 1)
                     base_area_w = getattr(self, "area_weight_override", self.area_weight)
                     base_crust_w = getattr(self, "crust_weight_override", self.crust_weight)
                     area_weight = base_area_w + (1 - alpha) * 0.1
                     crust_weight = base_crust_w * (1 + 0.5 * alpha)
-                    if cut_index == 0:  # bias first cut toward crust fairness
+
+                    # First-cut bias
+                    if cut_index == 0:
                         area_weight *= 0.8
                         crust_weight *= 1.4
 
-                    r_small = r1 if a1_area <= a2_area else r2
-                    global_balance_penalty = abs(r_small - global_mean)
-
                     score = (
-                        area_weight * area_error
-                        + crust_weight * crust_diff
-                        + global_weight * global_balance_penalty
+                        area_weight * area_error +
+                        crust_weight * weighted_crust_diff
                     )
 
                     if cut_index == 0 and small > t_area:
                         score *= 1.25
-                    if area_error > 0.3 or crust_diff > 0.6:
+
+                    if area_error > 0.3:
                         continue
 
                     if score < best_score:
                         best_score = score
                         best_cut = (p1, p2)
-                        if area_error < perfect_thresh and crust_diff < 0.01:
+                        if area_error < perfect_thresh and weighted_crust_diff < 0.01:
                             break
                 if best_score < float("inf") and best_score < perfect_thresh:
                     break
@@ -187,12 +214,15 @@ class Player8(Player):
             # Debug print
             a_preview = min(split(piece, LineString(best_cut)).geoms, key=lambda g: g.area)
             area_err = abs(a_preview.area - t_area)
+            ratio_err = abs(r_small - global_mean)
             print(
                 f"Chosen cut {cut_index + 1}: "
                 f"({best_cut[0].x:.3f},{best_cut[0].y:.3f}) → "
                 f"({best_cut[1].x:.3f},{best_cut[1].y:.3f}), "
-                f"area error = {area_err:.4f}"
+                f"area error = {area_err:.4f}, "
+                f"ratio error = {ratio_err:.4f}"
             )
+
 
         # Save cuts and run post-processing wiggle
         self.cuts = moves
@@ -202,6 +232,7 @@ class Player8(Player):
         self._wiggle_cuts(iterations=2, delta=0.04)
 
         return moves
+
 
     # -------------------------------------------------------------
     # Post-processing: crust ratio smoothing
