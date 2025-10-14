@@ -154,13 +154,16 @@ class Player8(Player):
                         smaller_frac = a1_frac
 
                     stage_progress = cut_index / max(1, self.children - 1)
-                    larger_weight = 0.8 - 0.3 * stage_progress
+                    larger_weight = 0.65 - 0.15 * stage_progress
                     smaller_weight = 1.0 - larger_weight
 
                     weighted_crust_diff = (
                         larger_r_diff * larger_frac * larger_weight +
                         smaller_r_diff * smaller_frac * smaller_weight
                     )
+
+                    self.last_area_error = area_error
+                    self.last_crust_error = weighted_crust_diff
 
                     # Dynamic weighting
                     alpha = cut_index / max(1, self.children - 1)
@@ -172,7 +175,7 @@ class Player8(Player):
                     # First-cut bias
                     if cut_index == 0:
                         area_weight *= 0.8
-                        crust_weight *= 1.4
+                        crust_weight *= 1.6
 
                     score = (
                         area_weight * area_error +
@@ -193,7 +196,6 @@ class Player8(Player):
                 if best_score < float("inf") and best_score < perfect_thresh:
                     break
 
-            print(f"[CUT {cut_index + 1}] Candidates within ±0.25 cm²: {candidate_count}")
 
             # Fallback if no near-target candidates were found
             if best_cut is None:
@@ -226,15 +228,16 @@ class Player8(Player):
             ratio_err = abs(r_large - global_mean)
 
             # Print result
-            print(
-                f"Chosen cut {cut_index + 1}: "
-                f"({best_cut[0].x:.3f},{best_cut[0].y:.3f}) → "
-                f"({best_cut[1].x:.3f},{best_cut[1].y:.3f}), "
-                f"area error = {area_err:.4f}, "
-                f"ratio error = {ratio_err:.4f}"
-            )
+            def pct_diff(a, b):
+                return abs(a - b) / max(abs(a), abs(b), 1e-6)  # avoid division by zero
 
-
+            if pct_diff(r1, global_mean) <= 0.05 or pct_diff(r2, global_mean) <= 0.05:
+                print(
+                    f"Candidate near crust ratio at cut {cut_index + 1}: "
+                    f"Points ({p1.x:.3f},{p1.y:.3f})-({p2.x:.3f},{p2.y:.3f}), "
+                    f"Larger_r_diff={larger_r_diff:.3f}, Smaller_r_diff={smaller_r_diff:.3f}, "
+                    f"Area error={area_error:.4f}"
+                )
 
         # Save cuts and run post-processing wiggle
         self.cuts = moves
@@ -324,4 +327,3 @@ class Player8(Player):
             print(f"[WIGGLE] Final: ratio std={best_std:.4f}, area span={best_span:.4f}")
         else:
             print("[WIGGLE] No improvement found; keeping original cuts.")
-
