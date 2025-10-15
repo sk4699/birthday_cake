@@ -39,7 +39,10 @@ class Player8(Player):
         best = (
             p1,
             p2,
-            abs(min(split(piece, LineString([p1, p2])).geoms, key=lambda g: g.area).area - t_area),
+            abs(
+                min(split(piece, LineString([p1, p2])).geoms, key=lambda g: g.area).area
+                - t_area
+            ),
         )
 
         for _ in range(steps):
@@ -131,13 +134,20 @@ class Player8(Player):
                         continue
 
                     area_error = abs(small - t_area) / t_area
-                    r1, r2 = self.cake.get_piece_ratio(a1), self.cake.get_piece_ratio(a2)
+                    r1, r2 = (
+                        self.cake.get_piece_ratio(a1),
+                        self.cake.get_piece_ratio(a2),
+                    )
                     crust_diff = min(abs(r1 - r2), 1.0)
 
                     # Dynamic weighting + first-cut bias
                     alpha = cut_index / max(1, self.children - 1)
-                    base_area_w = getattr(self, "area_weight_override", self.area_weight)
-                    base_crust_w = getattr(self, "crust_weight_override", self.crust_weight)
+                    base_area_w = getattr(
+                        self, "area_weight_override", self.area_weight
+                    )
+                    base_crust_w = getattr(
+                        self, "crust_weight_override", self.crust_weight
+                    )
                     area_weight = base_area_w + (1 - alpha) * 0.1
                     crust_weight = base_crust_w * (1 + 0.5 * alpha)
                     if cut_index == 0:  # bias first cut toward crust fairness
@@ -166,25 +176,37 @@ class Player8(Player):
                 if best_score < float("inf") and best_score < perfect_thresh:
                     break
 
-            print(f"[CUT {cut_index + 1}] Candidates within ±0.25 cm²: {candidate_count}")
+            print(
+                f"[CUT {cut_index + 1}] Candidates within ±0.25 cm²: {candidate_count}"
+            )
 
             # Fallback if no near-target candidates were found
             if best_cut is None:
                 if candidate_count == 0 and fallback_best[0] is not None:
                     best_cut = fallback_best[0]
-                    print(f"  ⚠ No near-target candidates; using closest match (Δ={fallback_best[1]:.3f})")
+                    print(
+                        f"  ⚠ No near-target candidates; using closest match (Δ={fallback_best[1]:.3f})"
+                    )
                 else:
                     print(f"[WARN] No valid cut found at step {cut_index + 1}")
                     break
 
             # Final refinement
-            possible_best_cut = self._refine_cut(piece, best_cut[0], best_cut[1], t_area)
+            possible_best_cut = self._refine_cut(
+                piece, best_cut[0], best_cut[1], t_area
+            )
             line_of_possible_best_cut = LineString(possible_best_cut)
             parts_of_possible_best_cut = split(piece, line_of_possible_best_cut)
-            possible_best_score = float('inf')
+            possible_best_score = float("inf")
 
             if len(parts_of_possible_best_cut.geoms) == 2:
-                possible_best_score = self._score_cut(parts_of_possible_best_cut.geoms, t_area, cut_index, global_mean, global_weight)
+                possible_best_score = self._score_cut(
+                    parts_of_possible_best_cut.geoms,
+                    t_area,
+                    cut_index,
+                    global_mean,
+                    global_weight,
+                )
 
             if possible_best_score < best_score:
                 best_cut = possible_best_cut
@@ -195,7 +217,9 @@ class Player8(Player):
             moves.append(best_cut)
 
             # Debug print
-            a_preview = min(split(piece, LineString(best_cut)).geoms, key=lambda g: g.area)
+            a_preview = min(
+                split(piece, LineString(best_cut)).geoms, key=lambda g: g.area
+            )
             area_err = abs(a_preview.area - t_area)
             print(
                 f"Chosen cut {cut_index + 1}: "
@@ -231,14 +255,20 @@ class Player8(Player):
         pieces = self.cake.get_pieces()
         before_ratios = [self.cake.get_piece_ratio(p) for p in pieces]
         before_mean = sum(before_ratios) / len(before_ratios)
-        before_std = (sum((r - before_mean) ** 2 for r in before_ratios) / len(before_ratios)) ** 0.5
+        before_std = (
+            sum((r - before_mean) ** 2 for r in before_ratios) / len(before_ratios)
+        ) ** 0.5
         before_areas = [p.area for p in pieces]
         before_span = max(before_areas) - min(before_areas)
-        print(f"[WIGGLE] Start: ratio std={before_std:.4f}, area span={before_span:.4f}")
+        print(
+            f"[WIGGLE] Start: ratio std={before_std:.4f}, area span={before_span:.4f}"
+        )
 
         def move(pt, step, step_size):
             s = boundary.project(pt)
-            s_new = min(max(0.0, s + step * step_size * boundary.length), boundary.length)
+            s_new = min(
+                max(0.0, s + step * step_size * boundary.length), boundary.length
+            )
             return boundary.interpolate(s_new)
 
         best_config = list(self.cuts)
@@ -262,14 +292,18 @@ class Player8(Player):
                         test_pieces = test_cake.get_pieces()
                         ratios = [test_cake.get_piece_ratio(p) for p in test_pieces]
                         mean_r = sum(ratios) / len(ratios)
-                        std_new = (sum((r - mean_r) ** 2 for r in ratios) / len(ratios)) ** 0.5
+                        std_new = (
+                            sum((r - mean_r) ** 2 for r in ratios) / len(ratios)
+                        ) ** 0.5
 
                         areas = [p.area for p in test_pieces]
                         span_new = max(areas) - min(areas)
 
                         # accept only if ratio improved and area span didn't blow up
                         if std_new < best_std and span_new <= best_span + 0.1:
-                            print(f" Wiggle improved std {best_std:.4f}→{std_new:.4f}, span {best_span:.4f}→{span_new:.4f}")
+                            print(
+                                f" Wiggle improved std {best_std:.4f}→{std_new:.4f}, span {best_span:.4f}→{span_new:.4f}"
+                            )
                             best_config[i] = (q1, q2)
                             best_std, best_span = std_new, span_new
                             improved = True
@@ -288,10 +322,11 @@ class Player8(Player):
                 except Exception:
                     continue
             self.cuts = best_config
-            print(f"[WIGGLE] Final: ratio std={best_std:.4f}, area span={best_span:.4f}")
+            print(
+                f"[WIGGLE] Final: ratio std={best_std:.4f}, area span={best_span:.4f}"
+            )
         else:
             print("[WIGGLE] No improvement found; keeping original cuts.")
-
 
     def _score_cut(self, parts, t_area, cut_index, global_mean, global_weight):
         a1, a2 = parts
@@ -320,9 +355,6 @@ class Player8(Player):
             area_weight * area_error
             + crust_weight * crust_diff
             + global_weight * global_balance_penalty
-                    )
-        
+        )
+
         return score
-
-
-
