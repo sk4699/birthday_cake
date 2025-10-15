@@ -176,19 +176,11 @@ class Player8(Player):
                 if best_score < float("inf") and best_score < perfect_thresh:
                     break
 
-            print(
-                f"[CUT {cut_index + 1}] Candidates within ±0.25 cm²: {candidate_count}"
-            )
-
             # Fallback if no near-target candidates were found
             if best_cut is None:
                 if candidate_count == 0 and fallback_best[0] is not None:
                     best_cut = fallback_best[0]
-                    print(
-                        f"  ⚠ No near-target candidates; using closest match (Δ={fallback_best[1]:.3f})"
-                    )
                 else:
-                    print(f"[WARN] No valid cut found at step {cut_index + 1}")
                     break
 
             # Final refinement
@@ -216,23 +208,9 @@ class Player8(Player):
             self.cake.cut(best_cut[0], best_cut[1])
             moves.append(best_cut)
 
-            # Debug print
-            a_preview = min(
-                split(piece, LineString(best_cut)).geoms, key=lambda g: g.area
-            )
-            area_err = abs(a_preview.area - t_area)
-            print(
-                f"Chosen cut {cut_index + 1}: "
-                f"({best_cut[0].x:.3f},{best_cut[0].y:.3f}) → "
-                f"({best_cut[1].x:.3f},{best_cut[1].y:.3f}), "
-                f"area error = {area_err:.4f}"
-            )
-
         # Save cuts and run post-processing wiggle
         self.cuts = moves
-        print("Applying wiggle refinement...")
         self._wiggle_cuts(iterations=3, delta=0.02)
-        print("Performing global rebalance sweep...")
         self._wiggle_cuts(iterations=2, delta=0.04)
 
         return moves
@@ -248,7 +226,6 @@ class Player8(Player):
         if both ratio std improves and area span stays stable.
         """
         if not hasattr(self, "cuts") or not self.cuts:
-            print("No cuts to wiggle.")
             return
 
         boundary = self.cake.exterior_shape.boundary
@@ -260,9 +237,6 @@ class Player8(Player):
         ) ** 0.5
         before_areas = [p.area for p in pieces]
         before_span = max(before_areas) - min(before_areas)
-        print(
-            f"[WIGGLE] Start: ratio std={before_std:.4f}, area span={before_span:.4f}"
-        )
 
         def move(pt, step, step_size):
             s = boundary.project(pt)
@@ -301,9 +275,6 @@ class Player8(Player):
 
                         # accept only if ratio improved and area span didn't blow up
                         if std_new < best_std and span_new <= best_span + 0.1:
-                            print(
-                                f" Wiggle improved std {best_std:.4f}→{std_new:.4f}, span {best_span:.4f}→{span_new:.4f}"
-                            )
                             best_config[i] = (q1, q2)
                             best_std, best_span = std_new, span_new
                             improved = True
@@ -322,11 +293,7 @@ class Player8(Player):
                 except Exception:
                     continue
             self.cuts = best_config
-            print(
-                f"[WIGGLE] Final: ratio std={best_std:.4f}, area span={best_span:.4f}"
-            )
-        else:
-            print("[WIGGLE] No improvement found; keeping original cuts.")
+
 
     def _score_cut(self, parts, t_area, cut_index, global_mean, global_weight):
         a1, a2 = parts
