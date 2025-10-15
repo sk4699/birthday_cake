@@ -178,7 +178,17 @@ class Player8(Player):
                     break
 
             # Final refinement
-            best_cut = self._refine_cut(piece, best_cut[0], best_cut[1], t_area)
+            possible_best_cut = self._refine_cut(piece, best_cut[0], best_cut[1], t_area)
+            line_of_possible_best_cut = LineString(possible_best_cut)
+            parts_of_possible_best_cut = split(piece, line_of_possible_best_cut)
+            possible_best_score = float('inf')
+
+            if len(parts_of_possible_best_cut.geoms) == 2:
+                possible_best_score = self._score_cut(parts_of_possible_best_cut.geoms, t_area, cut_index, global_mean, global_weight)
+
+            if possible_best_score < best_score:
+                best_cut = possible_best_cut
+                best_score = possible_best_score
 
             # Apply chosen cut
             self.cake.cut(best_cut[0], best_cut[1])
@@ -281,4 +291,38 @@ class Player8(Player):
             print(f"[WIGGLE] Final: ratio std={best_std:.4f}, area span={best_span:.4f}")
         else:
             print("[WIGGLE] No improvement found; keeping original cuts.")
+
+
+    def _score_cut(self, parts, t_area, cut_index, global_mean, global_weight):
+        a1, a2 = parts
+
+        a1_area, a2_area = a1.area, a2.area
+        small = min(a1_area, a2_area)
+
+        area_error = abs(small - t_area) / t_area
+        r1, r2 = self.cake.get_piece_ratio(a1), self.cake.get_piece_ratio(a2)
+        crust_diff = min(abs(r1 - r2), 1.0)
+
+        # Dynamic weighting + first-cut bias
+        alpha = cut_index / max(1, self.children - 1)
+        base_area_w = getattr(self, "area_weight_override", self.area_weight)
+        base_crust_w = getattr(self, "crust_weight_override", self.crust_weight)
+        area_weight = base_area_w + (1 - alpha) * 0.1
+        crust_weight = base_crust_w * (1 + 0.5 * alpha)
+        if cut_index == 0:  # bias first cut toward crust fairness
+            area_weight *= 0.8
+            crust_weight *= 1.4
+
+        r_small = r1 if a1_area <= a2_area else r2
+        global_balance_penalty = abs(r_small - global_mean)
+
+        score = (
+            area_weight * area_error
+            + crust_weight * crust_diff
+            + global_weight * global_balance_penalty
+                    )
+        
+        return score
+
+
 
