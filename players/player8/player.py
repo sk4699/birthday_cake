@@ -17,6 +17,14 @@ class Player8(Player):
     """
 
     def __init__(self, children: int, cake: Cake, cake_path: str | None) -> None:
+        """
+        Initializes Player8 with weighting preferences for area and crust fairness.
+
+        Args:
+            children: Number of cake recipients.
+            cake: The cake object to be divided.
+            cake_path: Optional path for serialized cake state.
+        """
         super().__init__(children, cake, cake_path)
         self.area_weight = 0.7
         self.crust_weight = 0.23
