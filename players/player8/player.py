@@ -302,7 +302,6 @@ class Player8(Player):
                     continue
             self.cuts = best_config
 
-
     def _score_cut(self, parts, t_area, cut_index, global_mean, global_weight):
         a1, a2 = parts
 
